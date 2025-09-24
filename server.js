@@ -63,9 +63,8 @@ async function handleVotingConversation(phoneNumber, message) {
         // الحصول على حالة المستخدم الحالية
         let userSession = await getUserSession(phoneNumber);
 
-        // إذا كان مستخدم جديد أو قال "بداية" أو "ابدأ" - إعادة تشغيل دائماً
-        if (!userSession || message.toLowerCase().includes('بداية') || message.toLowerCase().includes('ابدأ') || message.toLowerCase().includes('تصويت') || message.toLowerCase().includes('start')) {
-            console.log('🔄 بدء جلسة جديدة أو إعادة تشغيل');
+        // إذا كان مستخدم جديد أو قال "بداية" أو "ابدأ"
+        if (!userSession || message.toLowerCase().includes('بداية') || message.toLowerCase().includes('ابدأ') || message.toLowerCase().includes('تصويت')) {
             await startNewSession(phoneNumber);
             userSession = { current_step: 'start' };
         }
@@ -90,10 +89,11 @@ async function handleVotingConversation(phoneNumber, message) {
             case 'count':
                 await handleCountStep(phoneNumber, message);
                 break;
+            case 'report':
+                await handleReportStep(phoneNumber, message);
+                break;
             case 'completed':
-                // السماح بإعادة البداية من حالة completed
-                console.log('📝 المستخدم في حالة مكتملة - في انتظار "بداية"');
-                await sendMessage(phoneNumber, 'للبدء من جديد، اكتب "بداية"');
+                await handleCompletedStep(phoneNumber);
                 break;
             default:
                 await startNewSession(phoneNumber);
@@ -103,7 +103,7 @@ async function handleVotingConversation(phoneNumber, message) {
         await logConversation(phoneNumber, message, userSession.current_step);
 
     } catch (error) {
-        console.error('❌ خطأ في معالجة المحادثة:', error);
+        console.error('خطأ في معالجة المحادثة:', error);
         await sendMessage(phoneNumber, 'حدث خطأ، يرجى المحاولة مرة أخرى أو كتابة "بداية"');
     }
 }
@@ -134,7 +134,8 @@ async function startNewSession(phoneNumber) {
             area_name: null,
             voting_center: null,
             has_voted: null,
-            voters_count: null
+            voters_count: null,
+            user_report: null
         });
 
     if (error) {
@@ -240,6 +241,27 @@ async function handleVotedStep(phoneNumber, message) {
     }
 }
 
+// خطوة التقرير المكتوب
+async function handleReportStep(phoneNumber, message) {
+    const userReport = message.trim();
+
+    if (userReport.length < 5) {
+        await sendMessage(phoneNumber, 'يرجى كتابة تقرير أكثر تفصيلاً:');
+        return;
+    }
+
+    await updateUserSession(phoneNumber, {
+        user_report: userReport,
+        current_step: 'completed'
+    });
+
+    await sendMessage(phoneNumber, `تم حفظ التقرير: ${userReport}
+
+جاري إعداد التقرير النهائي...`);
+
+    await generateFinalReport(phoneNumber);
+}
+
 // خطوة العدد
 async function handleCountStep(phoneNumber, message) {
     const count = parseInt(message.trim());
@@ -251,10 +273,13 @@ async function handleCountStep(phoneNumber, message) {
 
     await updateUserSession(phoneNumber, {
         voters_count: count,
-        current_step: 'completed'
+        current_step: 'report'
     });
 
-    await generateFinalReport(phoneNumber);
+    await sendMessage(phoneNumber, `تم حفظ العدد: ${count}
+
+الآن يرجى كتابة تقرير مختصر عن عملية التصويت:
+(مثال: تم التصويت في وقت مبكر، لا توجد مشاكل، الإقبال جيد)`);
 }
 
 // خطوة الإنتهاء
@@ -284,7 +309,8 @@ async function generateFinalReport(phoneNumber) {
                 area_name: userSession.area_name,
                 voting_center: userSession.voting_center,
                 has_voted: userSession.has_voted,
-                voters_count: userSession.voters_count || 0
+                voters_count: userSession.voters_count || 0,
+                user_report: userSession.user_report || null
             });
 
         if (recordError) {
@@ -299,6 +325,7 @@ async function generateFinalReport(phoneNumber) {
 🏢 المركز الانتخابي: ${userSession.voting_center}
 🗳️ حالة التصويت: ${userSession.has_voted ? '✅ تم التصويت' : '❌ لم يتم التصويت'}
 👥 عدد المصوتين معك: ${userSession.voters_count || 0}
+📝 التقرير: ${userSession.user_report || 'لا يوجد تقرير'}
 📅 تاريخ التسجيل: ${new Date().toLocaleString('ar-IQ')}
 
 ✅ تم حفظ بياناتك بنجاح!
