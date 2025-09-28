@@ -271,8 +271,9 @@ async function handleCountStep(phoneNumber, message) {
 async function handleReportStep(phoneNumber, message) {
     const userReport = message.trim();
 
-    if (userReport.length < 5) {
-        await sendMessage(phoneNumber, 'يرجى كتابة تقرير أكثر تفصيلاً:');
+    // إزالة التحقق من طول النص - قبول أي نص حتى لو حرف واحد
+    if (userReport.length === 0) {
+        await sendMessage(phoneNumber, 'يرجى كتابة شيء في التقرير:');
         return;
     }
 
