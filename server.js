@@ -243,16 +243,40 @@ async function handleVotedStep(phoneNumber, message) {
 // خطوة العدد
 async function handleCountStep(phoneNumber, message) {
     const count = parseInt(message.trim());
-    
+
     if (isNaN(count) || count < 0) {
         await sendMessage(phoneNumber, 'يرجى إدخال رقم صحيح (مثال: 3):');
         return;
     }
 
-    await updateUserSession(phoneNumber, { 
-        voters_count: count, 
-        current_step: 'completed' 
+    await updateUserSession(phoneNumber, {
+        voters_count: count,
+        current_step: 'report'
     });
+
+    await sendMessage(phoneNumber, `تم حفظ العدد: ${count}
+
+الآن يرجى كتابة تقرير مختصر عن عملية التصويت:
+(مثال: تم التصويت في وقت مبكر، لا توجد مشاكل، الإقبال جيد)`);
+}
+
+// خطوة التقرير المكتوب
+async function handleReportStep(phoneNumber, message) {
+    const userReport = message.trim();
+
+    if (userReport.length < 5) {
+        await sendMessage(phoneNumber, 'يرجى كتابة تقرير أكثر تفصيلاً:');
+        return;
+    }
+
+    await updateUserSession(phoneNumber, {
+        user_report: userReport,
+        current_step: 'completed'
+    });
+
+    await sendMessage(phoneNumber, `تم حفظ التقرير: ${userReport}
+
+جاري إعداد التقرير النهائي...`);
 
     await generateFinalReport(phoneNumber);
 }
@@ -299,6 +323,7 @@ async function generateFinalReport(phoneNumber) {
 🏢 المركز الانتخابي: ${userSession.voting_center}
 🗳️ حالة التصويت: ${userSession.has_voted ? '✅ تم التصويت' : '❌ لم يتم التصويت'}
 👥 عدد المصوتين معك: ${userSession.voters_count || 0}
+📝 التقرير: ${userSession.user_report || 'لا يوجد تقرير'}
 📅 تاريخ التسجيل: ${new Date().toLocaleString('ar-IQ')}
 
 ✅ تم حفظ بياناتك بنجاح!
