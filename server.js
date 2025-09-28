@@ -62,9 +62,10 @@ async function handleVotingConversation(phoneNumber, message) {
     try {
         // الحصول على حالة المستخدم الحالية
         let userSession = await getUserSession(phoneNumber);
-
-        // إذا كان مستخدم جديد أو قال "بداية" أو "ابدأ"
-        if (!userSession || message.toLowerCase().includes('بداية') || message.toLowerCase().includes('ابدأ') || message.toLowerCase().includes('تصويت')) {
+        
+        // إذا كان مستخدم جديد أو قال "بداية" أو "ابدأ" - إعادة تشغيل دائماً
+        if (!userSession || message.toLowerCase().includes('بداية') || message.toLowerCase().includes('ابدأ') || message.toLowerCase().includes('تصويت') || message.toLowerCase().includes('start')) {
+            console.log('🔄 بدء جلسة جديدة أو إعادة تشغيل');
             await startNewSession(phoneNumber);
             userSession = { current_step: 'start' };
         }
@@ -89,11 +90,10 @@ async function handleVotingConversation(phoneNumber, message) {
             case 'count':
                 await handleCountStep(phoneNumber, message);
                 break;
-            case 'report':
-                await handleReportStep(phoneNumber, message);
-                break;
             case 'completed':
-                await handleCompletedStep(phoneNumber);
+                // السماح بإعادة البداية من حالة completed
+                console.log('📝 المستخدم في حالة مكتملة - في انتظار "بداية"');
+                await sendMessage(phoneNumber, 'للبدء من جديد، اكتب "بداية"');
                 break;
             default:
                 await startNewSession(phoneNumber);
@@ -103,7 +103,7 @@ async function handleVotingConversation(phoneNumber, message) {
         await logConversation(phoneNumber, message, userSession.current_step);
 
     } catch (error) {
-        console.error('خطأ في معالجة المحادثة:', error);
+        console.error('❌ خطأ في معالجة المحادثة:', error);
         await sendMessage(phoneNumber, 'حدث خطأ، يرجى المحاولة مرة أخرى أو كتابة "بداية"');
     }
 }
@@ -115,11 +115,11 @@ async function getUserSession(phoneNumber) {
         .select('*')
         .eq('phone_number', phoneNumber)
         .single();
-
+    
     if (error && error.code !== 'PGRST116') {
         console.error('خطأ في جلب جلسة المستخدم:', error);
     }
-
+    
     return data;
 }
 
@@ -134,8 +134,7 @@ async function startNewSession(phoneNumber) {
             area_name: null,
             voting_center: null,
             has_voted: null,
-            voters_count: null,
-            user_report: null
+            voters_count: null
         });
 
     if (error) {
@@ -158,15 +157,15 @@ async function handleStartStep(phoneNumber) {
 // خطوة الاسم
 async function handleNameStep(phoneNumber, message) {
     const cleanName = message.trim();
-
+    
     if (cleanName.length < 6) {
         await sendMessage(phoneNumber, 'يرجى إدخال الاسم الثلاثي كاملاً:');
         return;
     }
 
-    await updateUserSession(phoneNumber, {
-        full_name: cleanName,
-        current_step: 'area'
+    await updateUserSession(phoneNumber, { 
+        full_name: cleanName, 
+        current_step: 'area' 
     });
 
     await sendMessage(phoneNumber, `تم حفظ الاسم: ${cleanName}
@@ -177,15 +176,15 @@ async function handleNameStep(phoneNumber, message) {
 // خطوة المنطقة
 async function handleAreaStep(phoneNumber, message) {
     const areaName = message.trim();
-
+    
     if (areaName.length < 2) {
         await sendMessage(phoneNumber, 'يرجى إدخال اسم المنطقة:');
         return;
     }
 
-    await updateUserSession(phoneNumber, {
-        area_name: areaName,
-        current_step: 'center'
+    await updateUserSession(phoneNumber, { 
+        area_name: areaName, 
+        current_step: 'center' 
     });
 
     await sendMessage(phoneNumber, `تم حفظ المنطقة: ${areaName}
@@ -197,9 +196,9 @@ async function handleAreaStep(phoneNumber, message) {
 async function handleCenterStep(phoneNumber, message) {
     const centerName = message.trim();
 
-    await updateUserSession(phoneNumber, {
-        voting_center: centerName,
-        current_step: 'voted'
+    await updateUserSession(phoneNumber, { 
+        voting_center: centerName, 
+        current_step: 'voted' 
     });
 
     await sendMessage(phoneNumber, `تم حفظ المركز: ${centerName}
@@ -214,11 +213,11 @@ async function handleCenterStep(phoneNumber, message) {
 // خطوة التصويت
 async function handleVotedStep(phoneNumber, message) {
     const answer = message.toLowerCase().trim();
-
+    
     if (answer.includes('نعم') || answer.includes('yes')) {
-        await updateUserSession(phoneNumber, {
-            has_voted: true,
-            current_step: 'count'
+        await updateUserSession(phoneNumber, { 
+            has_voted: true, 
+            current_step: 'count' 
         });
 
         await sendMessage(phoneNumber, `تم حفظ: نعم - قمت بالتصويت
@@ -228,10 +227,10 @@ async function handleVotedStep(phoneNumber, message) {
 يرجى كتابة العدد (مثال: 3):`);
 
     } else if (answer.includes('لا') || answer.includes('no')) {
-        await updateUserSession(phoneNumber, {
-            has_voted: false,
+        await updateUserSession(phoneNumber, { 
+            has_voted: false, 
             voters_count: 0,
-            current_step: 'completed'
+            current_step: 'completed' 
         });
 
         await generateFinalReport(phoneNumber);
@@ -241,45 +240,21 @@ async function handleVotedStep(phoneNumber, message) {
     }
 }
 
-// خطوة التقرير المكتوب
-async function handleReportStep(phoneNumber, message) {
-    const userReport = message.trim();
-
-    if (userReport.length < 5) {
-        await sendMessage(phoneNumber, 'يرجى كتابة تقرير أكثر تفصيلاً:');
-        return;
-    }
-
-    await updateUserSession(phoneNumber, {
-        user_report: userReport,
-        current_step: 'completed'
-    });
-
-    await sendMessage(phoneNumber, `تم حفظ التقرير: ${userReport}
-
-جاري إعداد التقرير النهائي...`);
-
-    await generateFinalReport(phoneNumber);
-}
-
 // خطوة العدد
 async function handleCountStep(phoneNumber, message) {
     const count = parseInt(message.trim());
-
+    
     if (isNaN(count) || count < 0) {
         await sendMessage(phoneNumber, 'يرجى إدخال رقم صحيح (مثال: 3):');
         return;
     }
 
-    await updateUserSession(phoneNumber, {
-        voters_count: count,
-        current_step: 'report'
+    await updateUserSession(phoneNumber, { 
+        voters_count: count, 
+        current_step: 'completed' 
     });
 
-    await sendMessage(phoneNumber, `تم حفظ العدد: ${count}
-
-الآن يرجى كتابة تقرير مختصر عن عملية التصويت:
-(مثال: تم التصويت في وقت مبكر، لا توجد مشاكل، الإقبال جيد)`);
+    await generateFinalReport(phoneNumber);
 }
 
 // خطوة الإنتهاء
@@ -294,7 +269,7 @@ async function generateFinalReport(phoneNumber) {
     try {
         // الحصول على بيانات المستخدم
         const userSession = await getUserSession(phoneNumber);
-
+        
         if (!userSession) {
             await sendMessage(phoneNumber, 'حدث خطأ في جلب البيانات');
             return;
@@ -309,8 +284,7 @@ async function generateFinalReport(phoneNumber) {
                 area_name: userSession.area_name,
                 voting_center: userSession.voting_center,
                 has_voted: userSession.has_voted,
-                voters_count: userSession.voters_count || 0,
-                user_report: userSession.user_report || null
+                voters_count: userSession.voters_count || 0
             });
 
         if (recordError) {
@@ -325,7 +299,6 @@ async function generateFinalReport(phoneNumber) {
 🏢 المركز الانتخابي: ${userSession.voting_center}
 🗳️ حالة التصويت: ${userSession.has_voted ? '✅ تم التصويت' : '❌ لم يتم التصويت'}
 👥 عدد المصوتين معك: ${userSession.voters_count || 0}
-📝 التقرير: ${userSession.user_report || 'لا يوجد تقرير'}
 📅 تاريخ التسجيل: ${new Date().toLocaleString('ar-IQ')}
 
 ✅ تم حفظ بياناتك بنجاح!
@@ -394,7 +367,7 @@ async function sendMessage(to, body) {
         });
 
         console.log(`✅ تم إرسال رسالة: ${message.sid}`);
-
+        
         // حفظ رد البوت في السجل
         await supabase
             .from('conversation_logs')
