@@ -90,6 +90,9 @@ async function handleVotingConversation(phoneNumber, message) {
             case 'count':
                 await handleCountStep(phoneNumber, message);
                 break;
+            case 'report':
+                await handleReportStep(phoneNumber, message);
+                break;
             case 'completed':
                 // السماح بإعادة البداية من حالة completed
                 console.log('📝 المستخدم في حالة مكتملة - في انتظار "بداية"');
@@ -134,7 +137,8 @@ async function startNewSession(phoneNumber) {
             area_name: null,
             voting_center: null,
             has_voted: null,
-            voters_count: null
+            voters_count: null,
+            user_report: null
         });
 
     if (error) {
@@ -230,6 +234,7 @@ async function handleVotedStep(phoneNumber, message) {
         await updateUserSession(phoneNumber, { 
             has_voted: false, 
             voters_count: 0,
+            user_report: 'لم يقم بالتصويت',
             current_step: 'completed' 
         });
 
@@ -253,6 +258,8 @@ async function handleCountStep(phoneNumber, message) {
         voters_count: count,
         current_step: 'report'
     });
+
+    console.log(`🔄 تم تحديث المستخدم إلى خطوة: report`);
 
     await sendMessage(phoneNumber, `تم حفظ العدد: ${count}
 
@@ -308,7 +315,8 @@ async function generateFinalReport(phoneNumber) {
                 area_name: userSession.area_name,
                 voting_center: userSession.voting_center,
                 has_voted: userSession.has_voted,
-                voters_count: userSession.voters_count || 0
+                voters_count: userSession.voters_count || 0,
+                user_report: userSession.user_report || 'لا يوجد تقرير'
             });
 
         if (recordError) {
