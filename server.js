@@ -63,8 +63,14 @@ async function handleVotingConversation(phoneNumber, message) {
         // الحصول على حالة المستخدم الحالية
         let userSession = await getUserSession(phoneNumber);
         
-        // إذا كان مستخدم جديد أو قال "بداية" أو "ابدأ" - إعادة تشغيل دائماً
-        if (!userSession || message.toLowerCase().includes('بداية') || message.toLowerCase().includes('ابدأ') || message.toLowerCase().includes('تصويت') || message.toLowerCase().includes('start')) {
+        // إعادة التشغيل فقط إذا كان مستخدم جديد أو قال كلمة البداية بالضبط
+        // وليس في وسط خطوة التقرير
+        const isRestartCommand = message.toLowerCase().trim() === 'بداية' || 
+                                 message.toLowerCase().trim() === 'ابدأ' || 
+                                 message.toLowerCase().trim() === 'تصويت' || 
+                                 message.toLowerCase().trim() === 'start';
+        
+        if (!userSession || isRestartCommand) {
             console.log('🔄 بدء جلسة جديدة أو إعادة تشغيل');
             await startNewSession(phoneNumber);
             userSession = { current_step: 'start' };
