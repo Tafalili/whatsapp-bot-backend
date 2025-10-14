@@ -253,10 +253,20 @@ async function handleVotedStep(phoneNumber, message) {
 
 // خطوة العدد
 async function handleCountStep(phoneNumber, message) {
-    const count = parseInt(message.trim());
+    let countText = message.trim();
+    
+    // تحويل الأرقام الهندية (العربية) إلى أرقام إنجليزية
+    const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    const englishNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    
+    for (let i = 0; i < arabicNumbers.length; i++) {
+        countText = countText.replace(new RegExp(arabicNumbers[i], 'g'), englishNumbers[i]);
+    }
+    
+    const count = parseInt(countText);
 
     if (isNaN(count) || count < 0) {
-        await sendMessage(phoneNumber, 'يرجى إدخال رقم صحيح (مثال: 3):');
+        await sendMessage(phoneNumber, 'يرجى إدخال رقم صحيح (مثال: 3 أو ٣):');
         return;
     }
 
