@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const twilio = require('twilio');
+const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
@@ -11,49 +11,56 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// إعدادات Twilio
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const twilioWhatsAppNumber = process.env.TWILIO_WHATSAPP_NUMBER;
-const client = twilio(accountSid, authToken);
+// إعدادات 360Dialog
+const dialog360ApiKey = process.env.DIALOG360_API_KEY;
+const dialog360PhoneNumber = process.env.DIALOG360_PHONE_NUMBER; // رقمك بدون + أو whatsapp:
+const dialog360ApiUrl = 'https://waba-v2.360dialog.io';
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 // التحقق من المتغيرات البيئية
-if (!accountSid || !authToken || !twilioWhatsAppNumber || !supabaseUrl || !supabaseKey) {
+if (!dialog360ApiKey || !dialog360PhoneNumber || !supabaseUrl || !supabaseKey) {
     console.error('❌ بعض المتغيرات البيئية مفقودة');
     process.exit(1);
 }
 
-console.log('🗳️ نظام التصويت الذكي جاهز للعمل');
+console.log('🗳️ نظام التصويت الذكي جاهز للعمل (360Dialog)');
 
 // صفحة رئيسية
 app.get('/', (req, res) => {
     res.send(`
-    <h1>🗳️ نظام التصويت الذكي</h1>
+    <h1>🗳️ نظام التصويت الذكي (360Dialog)</h1>
     <p>✅ الخادم يعمل بنجاح!</p>
     <p>⏰ الوقت الحالي: ${new Date().toLocaleString('ar-IQ')}</p>
     <p>🔗 Webhook URL: ${req.protocol}://${req.get('host')}/webhook</p>
   `);
 });
 
-// معالجة الرسائل الواردة
+// معالجة الرسائل الواردة من 360Dialog
 app.post('/webhook', async (req, res) => {
     try {
-        const { Body, From, To } = req.body;
+        console.log('📨 Webhook received:', JSON.stringify(req.body, null, 2));
 
-        console.log(`📨 رسالة من ${From}: ${Body}`);
-
-        if (!Body) {
-            return res.status(200).send('OK');
+        // التحقق من نوع الرسالة
+        if (req.body.messages && req.body.messages.length > 0) {
+            const message = req.body.messages[0];
+            
+            // معالجة الرسائل النصية فقط
+            if (message.type === 'text') {
+                const from = message.from; // رقم المرسل
+                const text = message.text.body;
+                
+                console.log(`📨 رسالة من ${from}: ${text}`);
+                
+                await handleVotingConversation(from, text);
+            }
         }
 
-        await handleVotingConversation(From, Body);
-        res.status(200).send('OK');
+        res.status(200).json({ status: 'success' });
     } catch (error) {
         console.error('❌ خطأ في معالجة الرسالة:', error);
-        res.status(500).send('Internal Server Error');
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
@@ -64,7 +71,6 @@ async function handleVotingConversation(phoneNumber, message) {
         let userSession = await getUserSession(phoneNumber);
         
         // إعادة التشغيل فقط إذا كان مستخدم جديد أو قال كلمة البداية بالضبط
-        // وليس في وسط خطوة التقرير
         const isRestartCommand = message.toLowerCase().trim() === 'بداية' || 
                                  message.toLowerCase().trim() === 'ابدأ' || 
                                  message.toLowerCase().trim() === 'تصويت' || 
@@ -100,7 +106,6 @@ async function handleVotingConversation(phoneNumber, message) {
                 await handleReportStep(phoneNumber, message);
                 break;
             case 'completed':
-                // السماح بإعادة البداية من حالة completed
                 console.log('📝 المستخدم في حالة مكتملة - في انتظار "بداية"');
                 await sendMessage(phoneNumber, 'للبدء من جديد، اكتب "بداية"');
                 break;
@@ -234,7 +239,7 @@ async function handleVotedStep(phoneNumber, message) {
 
 كم عدد الأشخاص الذين صوتوا معك؟
 
-يرجى كتابة العدد (مثال: 3):`);
+يرجى كتابة العدد (مثال: 3 أو ٣):`);
 
     } else if (answer.includes('لا') || answer.includes('no')) {
         await updateUserSession(phoneNumber, { 
@@ -287,7 +292,6 @@ async function handleCountStep(phoneNumber, message) {
 async function handleReportStep(phoneNumber, message) {
     const userReport = message.trim();
 
-    // إزالة التحقق من طول النص - قبول أي نص حتى لو حرف واحد
     if (userReport.length === 0) {
         await sendMessage(phoneNumber, 'يرجى كتابة شيء في التقرير:');
         return;
@@ -305,17 +309,9 @@ async function handleReportStep(phoneNumber, message) {
     await generateFinalReport(phoneNumber);
 }
 
-// خطوة الإنتهاء
-async function handleCompletedStep(phoneNumber) {
-    await sendMessage(phoneNumber, `تم إكمال جميع البيانات مسبقاً.
-
-للبدء من جديد، اكتب "بداية"`);
-}
-
 // إنشاء التقرير النهائي
 async function generateFinalReport(phoneNumber) {
     try {
-        // الحصول على بيانات المستخدم
         const userSession = await getUserSession(phoneNumber);
         
         if (!userSession) {
@@ -358,8 +354,6 @@ async function generateFinalReport(phoneNumber) {
 للبدء من جديد، اكتب "بداية"`;
 
         await sendMessage(phoneNumber, report);
-
-        // تحديث حالة المستخدم
         await updateUserStep(phoneNumber, 'completed');
 
     } catch (error) {
@@ -407,16 +401,31 @@ async function logConversation(phoneNumber, userMessage, userStep) {
     }
 }
 
-// إرسال رسالة
+// إرسال رسالة عبر 360Dialog
 async function sendMessage(to, body) {
     try {
-        const message = await client.messages.create({
-            body: body,
-            from: twilioWhatsAppNumber,
-            to: to
-        });
+        console.log(`📲 محاولة إرسال رسالة إلى: ${to}`);
+        
+        const response = await axios.post(
+            dialog360ApiUrl,
+            {
+                recipient_type: 'individual',
+                to: to,
+                type: 'text',
+                text: {
+                    body: body
+                }
+            },
+            {
+                headers: {
+                    'D360-API-KEY': dialog360ApiKey,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
 
-        console.log(`✅ تم إرسال رسالة: ${message.sid}`);
+        console.log('✅ تم إرسال الرسالة بنجاح');
+        console.log(`Message ID: ${response.data.messages[0].id}`);
         
         // حفظ رد البوت في السجل
         await supabase
@@ -426,9 +435,15 @@ async function sendMessage(to, body) {
                 bot_response: body
             });
 
-        return message;
+        return response.data;
     } catch (error) {
-        console.error('❌ خطأ في إرسال الرسالة:', error);
+        console.error('❌ خطأ في إرسال الرسالة:');
+        if (error.response) {
+            console.error('Response status:', error.response.status);
+            console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+        } else {
+            console.error('Error message:', error.message);
+        }
         throw error;
     }
 }
@@ -436,7 +451,7 @@ async function sendMessage(to, body) {
 // بدء الخادم
 app.listen(PORT, () => {
     console.log('🎉 =================================');
-    console.log(`🗳️ نظام التصويت الذكي يعمل!`);
+    console.log(`🗳️ نظام التصويت الذكي يعمل! (360Dialog)`);
     console.log(`🌐 المنفذ: ${PORT}`);
     console.log(`🔗 الرابط المحلي: http://localhost:${PORT}`);
     console.log('🎉 =================================');
