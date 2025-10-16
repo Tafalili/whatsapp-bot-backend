@@ -231,11 +231,8 @@ async function startNewSession(phoneNumber) {
 
 // خطوة البداية
 async function handleStartStep(phoneNumber) {
-    const welcomeMessage = `🗳️ أهلاً وسهلاً بكم في نظام التصويت الذكي
-
-هذا النظام سيساعدك في تسجيل معلومات التصويت بطريقة منظمة.
-
-يرجى كتابة اسمك الثلاثي للبدء:`;
+    // نبدأ برسالة بسيطة جداً للاختبار
+    const welcomeMessage = `مرحبا بك في نظام التصويت. يرجى كتابة اسمك الثلاثي:`;
 
     await sendMessage(phoneNumber, welcomeMessage);
     await updateUserStep(phoneNumber, 'name');
