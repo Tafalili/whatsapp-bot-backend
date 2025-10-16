@@ -42,29 +42,58 @@ app.get('/', (req, res) => {
   `);
 });
 
+// إضافة endpoint للتحقق من الـ webhook (GET request)
+app.get('/webhook', (req, res) => {
+    console.log('🔍 Webhook verification request received');
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    if (mode && token) {
+        if (mode === 'subscribe' && token === 'voter_bot_verify_2024') {
+            console.log('✅ Webhook verified');
+            res.status(200).send(challenge);
+        } else {
+            console.log('❌ Webhook verification failed');
+            res.sendStatus(403);
+        }
+    } else {
+        res.sendStatus(404);
+    }
+});
+
 // معالجة الرسائل الواردة من 360Dialog
 app.post('/webhook', async (req, res) => {
     try {
         console.log('📨 Webhook received:', JSON.stringify(req.body, null, 2));
 
-        // التحقق من نوع الرسالة
-        if (req.body.messages && req.body.messages.length > 0) {
-            const message = req.body.messages[0];
+        // التحقق من وجود البيانات في المكان الصحيح
+        if (req.body.entry && req.body.entry[0] && 
+            req.body.entry[0].changes && req.body.entry[0].changes[0] && 
+            req.body.entry[0].changes[0].value && 
+            req.body.entry[0].changes[0].value.messages) {
             
-            // معالجة الرسائل النصية فقط
-            if (message.type === 'text') {
-                const from = message.from; // رقم المرسل
-                const text = message.text.body;
-                
-                console.log(`📨 رسالة من ${from}: ${text}`);
-                
-                await handleVotingConversation(from, text);
+            const messages = req.body.entry[0].changes[0].value.messages;
+            
+            for (const message of messages) {
+                // معالجة الرسائل النصية فقط
+                if (message.type === 'text') {
+                    const from = message.from; // رقم المرسل
+                    const text = message.text.body;
+                    
+                    console.log(`📨 رسالة من ${from}: ${text}`);
+                    
+                    await handleVotingConversation(from, text);
+                }
             }
+        } else {
+            console.log('⚠️ لا توجد رسائل في هذا الطلب');
         }
 
         res.status(200).json({ status: 'success' });
     } catch (error) {
         console.error('❌ خطأ في معالجة الرسالة:', error);
+        console.error('Stack trace:', error.stack);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
