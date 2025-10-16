@@ -479,21 +479,32 @@ async function sendMessage(to, body) {
         console.log(`📲 محاولة إرسال رسالة إلى: ${to}`);
         console.log(`📝 محتوى الرسالة: ${body.substring(0, 50)}...`);
         
-        // التأكد من تنسيق رقم الهاتف
-        const formattedNumber = to.replace(/\D/g, ''); // إزالة أي رموز غير رقمية
+        // التأكد من تنسيق رقم الهاتف (يجب أن يكون بدون + أو أصفار إضافية)
+        let formattedNumber = to.replace(/\D/g, ''); // إزالة أي رموز غير رقمية
+        
+        // إزالة الصفر الأولي إذا كان موجود (لأرقام العراق)
+        if (formattedNumber.startsWith('0')) {
+            formattedNumber = formattedNumber.substring(1);
+        }
+        
+        // التأكد من أن الرقم يبدأ بكود الدولة
+        if (!formattedNumber.startsWith('964')) {
+            console.log('⚠️ إضافة كود الدولة للرقم');
+            formattedNumber = '964' + formattedNumber;
+        }
+        
+        console.log(`📞 الرقم المنسق: ${formattedNumber}`);
         
         const requestBody = {
             messaging_product: "whatsapp",
-            recipient_type: "individual",
             to: formattedNumber,
             type: "text",
             text: {
-                preview_url: false,
                 body: body
             }
         };
 
-        console.log('🔧 Request body:', JSON.stringify(requestBody, null, 2));
+        console.log('🔧 جسم الطلب:', JSON.stringify(requestBody, null, 2));
 
         const response = await axios.post(
             'https://waba-v2.360dialog.io/v1/messages',
@@ -502,22 +513,29 @@ async function sendMessage(to, body) {
                 headers: {
                     'D360-API-KEY': dialog360ApiKey,
                     'Content-Type': 'application/json'
-                }
+                },
+                timeout: 10000 // timeout 10 ثواني
             }
         );
 
         console.log('✅ تم إرسال الرسالة بنجاح');
+        console.log('📬 Response:', JSON.stringify(response.data, null, 2));
+        
         if (response.data.messages && response.data.messages[0]) {
-            console.log(`Message ID: ${response.data.messages[0].id}`);
+            console.log(`✅ Message ID: ${response.data.messages[0].id}`);
         }
         
         // حفظ رد البوت في السجل
-        await supabase
-            .from('conversation_logs')
-            .insert({
-                phone_number: to,
-                bot_response: body
-            });
+        try {
+            await supabase
+                .from('conversation_logs')
+                .insert({
+                    phone_number: to,
+                    bot_response: body
+                });
+        } catch (dbError) {
+            console.error('⚠️ خطأ في حفظ السجل:', dbError);
+        }
 
         return response.data;
     } catch (error) {
@@ -528,15 +546,19 @@ async function sendMessage(to, body) {
             
             // معالجة أخطاء محددة
             if (error.response.status === 401) {
-                console.error('⚠️ خطأ في المصادقة - تحقق من API Key');
-                console.error('API Key being used:', dialog360ApiKey ? 'Present' : 'Missing');
+                console.error('⚠️ خطأ في المصادقة - API Key غير صحيح');
             } else if (error.response.status === 400) {
-                console.error('⚠️ خطأ في تنسيق الرسالة');
+                console.error('⚠️ خطأ في تنسيق الطلب - تحقق من بنية الرسالة');
+                console.error('💡 تأكد أن المستخدم بدأ المحادثة أولاً');
             } else if (error.response.status === 403) {
-                console.error('⚠️ الرقم غير مسموح أو غير مفعل');
+                console.error('⚠️ الرقم غير مسموح - قد يحتاج المستخدم لبدء المحادثة أولاً');
+            } else if (error.response.status === 404) {
+                console.error('⚠️ الرقم غير موجود أو غير صالح');
             }
+        } else if (error.code === 'ECONNABORTED') {
+            console.error('⚠️ انتهت مهلة الطلب - timeout');
         } else {
-            console.error('Error message:', error.message);
+            console.error('Error:', error.message);
         }
         throw error;
     }
