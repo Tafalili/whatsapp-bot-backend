@@ -13,8 +13,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // إعدادات 360Dialog
 const dialog360ApiKey = process.env.DIALOG360_API_KEY;
-const dialog360PhoneNumber = process.env.DIALOG360_PHONE_NUMBER; // رقمك بدون + أو whatsapp:
-const dialog360ApiUrl = 'https://waba-v2.360dialog.io';
+const dialog360PhoneNumber = process.env.DIALOG360_PHONE_NUMBER;
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
@@ -22,10 +21,15 @@ app.use(express.json());
 // التحقق من المتغيرات البيئية
 if (!dialog360ApiKey || !dialog360PhoneNumber || !supabaseUrl || !supabaseKey) {
     console.error('❌ بعض المتغيرات البيئية مفقودة');
+    console.error('API Key:', dialog360ApiKey ? '✅' : '❌');
+    console.error('Phone Number:', dialog360PhoneNumber ? '✅' : '❌');
+    console.error('Supabase URL:', supabaseUrl ? '✅' : '❌');
+    console.error('Supabase Key:', supabaseKey ? '✅' : '❌');
     process.exit(1);
 }
 
 console.log('🗳️ نظام التصويت الذكي جاهز للعمل (360Dialog)');
+console.log('📞 رقم الهاتف:', dialog360PhoneNumber);
 
 // صفحة رئيسية
 app.get('/', (req, res) => {
@@ -34,6 +38,7 @@ app.get('/', (req, res) => {
     <p>✅ الخادم يعمل بنجاح!</p>
     <p>⏰ الوقت الحالي: ${new Date().toLocaleString('ar-IQ')}</p>
     <p>🔗 Webhook URL: ${req.protocol}://${req.get('host')}/webhook</p>
+    <p>📞 رقم WhatsApp: ${dialog360PhoneNumber}</p>
   `);
 });
 
@@ -64,9 +69,37 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
+// endpoint لاختبار الإرسال
+app.post('/test-send', async (req, res) => {
+    try {
+        const { to, message } = req.body;
+        const testNumber = to || '9647838690292';
+        const testMessage = message || 'رسالة تجريبية من البوت 🤖';
+        
+        console.log(`🧪 اختبار الإرسال إلى: ${testNumber}`);
+        const result = await sendMessage(testNumber, testMessage);
+        
+        res.json({ 
+            success: true, 
+            result,
+            sentTo: testNumber,
+            message: testMessage
+        });
+    } catch (error) {
+        console.error('❌ فشل الاختبار:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            details: error.response?.data 
+        });
+    }
+});
+
 // معالجة محادثة التصويت
 async function handleVotingConversation(phoneNumber, message) {
     try {
+        console.log(`🔄 معالجة رسالة من ${phoneNumber}: "${message}"`);
+        
         // الحصول على حالة المستخدم الحالية
         let userSession = await getUserSession(phoneNumber);
         
@@ -81,6 +114,8 @@ async function handleVotingConversation(phoneNumber, message) {
             await startNewSession(phoneNumber);
             userSession = { current_step: 'start' };
         }
+
+        console.log(`📊 الخطوة الحالية للمستخدم: ${userSession.current_step}`);
 
         // معالجة حسب الخطوة الحالية
         switch (userSession.current_step) {
@@ -110,7 +145,9 @@ async function handleVotingConversation(phoneNumber, message) {
                 await sendMessage(phoneNumber, 'للبدء من جديد، اكتب "بداية"');
                 break;
             default:
+                console.log(`⚠️ خطوة غير معروفة: ${userSession.current_step}`);
                 await startNewSession(phoneNumber);
+                await handleStartStep(phoneNumber);
         }
 
         // حفظ الرسالة في السجل
@@ -118,7 +155,13 @@ async function handleVotingConversation(phoneNumber, message) {
 
     } catch (error) {
         console.error('❌ خطأ في معالجة المحادثة:', error);
-        await sendMessage(phoneNumber, 'حدث خطأ، يرجى المحاولة مرة أخرى أو كتابة "بداية"');
+        console.error('Stack trace:', error.stack);
+        
+        try {
+            await sendMessage(phoneNumber, 'حدث خطأ، يرجى المحاولة مرة أخرى أو كتابة "بداية"');
+        } catch (sendError) {
+            console.error('❌ فشل إرسال رسالة الخطأ:', sendError);
+        }
     }
 }
 
@@ -401,21 +444,31 @@ async function logConversation(phoneNumber, userMessage, userStep) {
     }
 }
 
-// إرسال رسالة عبر 360Dialog
+// إرسال رسالة عبر 360Dialog - النسخة المُصححة
 async function sendMessage(to, body) {
     try {
         console.log(`📲 محاولة إرسال رسالة إلى: ${to}`);
+        console.log(`📝 محتوى الرسالة: ${body.substring(0, 50)}...`);
         
+        // التأكد من تنسيق رقم الهاتف
+        const formattedNumber = to.replace(/\D/g, ''); // إزالة أي رموز غير رقمية
+        
+        const requestBody = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: formattedNumber,
+            type: "text",
+            text: {
+                preview_url: false,
+                body: body
+            }
+        };
+
+        console.log('🔧 Request body:', JSON.stringify(requestBody, null, 2));
+
         const response = await axios.post(
-            dialog360ApiUrl,
-            {
-                recipient_type: 'individual',
-                to: to,
-                type: 'text',
-                text: {
-                    body: body
-                }
-            },
+            'https://waba-v2.360dialog.io/v1/messages',
+            requestBody,
             {
                 headers: {
                     'D360-API-KEY': dialog360ApiKey,
@@ -425,7 +478,9 @@ async function sendMessage(to, body) {
         );
 
         console.log('✅ تم إرسال الرسالة بنجاح');
-        console.log(`Message ID: ${response.data.messages[0].id}`);
+        if (response.data.messages && response.data.messages[0]) {
+            console.log(`Message ID: ${response.data.messages[0].id}`);
+        }
         
         // حفظ رد البوت في السجل
         await supabase
@@ -441,6 +496,16 @@ async function sendMessage(to, body) {
         if (error.response) {
             console.error('Response status:', error.response.status);
             console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+            
+            // معالجة أخطاء محددة
+            if (error.response.status === 401) {
+                console.error('⚠️ خطأ في المصادقة - تحقق من API Key');
+                console.error('API Key being used:', dialog360ApiKey ? 'Present' : 'Missing');
+            } else if (error.response.status === 400) {
+                console.error('⚠️ خطأ في تنسيق الرسالة');
+            } else if (error.response.status === 403) {
+                console.error('⚠️ الرقم غير مسموح أو غير مفعل');
+            }
         } else {
             console.error('Error message:', error.message);
         }
@@ -454,6 +519,7 @@ app.listen(PORT, () => {
     console.log(`🗳️ نظام التصويت الذكي يعمل! (360Dialog)`);
     console.log(`🌐 المنفذ: ${PORT}`);
     console.log(`🔗 الرابط المحلي: http://localhost:${PORT}`);
+    console.log(`📱 رقم WhatsApp: ${dialog360PhoneNumber}`);
     console.log('🎉 =================================');
 });
 
