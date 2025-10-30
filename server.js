@@ -133,6 +133,7 @@ async function getUserSession(phoneNumber) {
 }
 
 // بداية جلسة جديدة
+// بداية جلسة جديدة
 async function startNewSession(phoneNumber) {
     const { error } = await supabase
         .from('user_sessions')
@@ -145,6 +146,8 @@ async function startNewSession(phoneNumber) {
             has_voted: null,
             voters_count: null,
             user_report: null
+        }, { 
+            onConflict: 'phone_number' // <--- **تمت الإضافة هنا**
         });
 
     if (error) {
@@ -443,3 +446,4 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
